@@ -133,3 +133,51 @@ Given this notion of strong and weak symbols, Linux linkers use the following ru
 ### Linking with Static Libraries
 
 In practice, all compilation systems provide a mechanism for packaging related object modules into a single file called a static library, which can then be supplied as input to the linker
+
+Consider the different approaches that compiler developers might use to provide these functions to users without the benefit of static libraries. One approach would be to have **the compiler recognize calls to the standard functions and to generate the appropriate code directly**，Another approach would be to **put all of the standard C functions in a single relocatable object module**, say, `libc.o`, that application programmers could link into their executables.
+
+The first way isn't feasible for C because of **the large number of standard functions** defined by the C standard and the another is also not feasible because **every executable file in a system would now contain a complete copy of the collection of standard functions**, which would be extremely wasteful of disk space. Another big disadvantage is that **any change to any standard function**, no matter how small, would require the library developer to **recompile** the entire source file.
+
+
+
+The notion of a static library was developed to resolve the disadvantages of these various approaches. **Related functions can be compiled into separate object modules and then packaged in a single static library file**
+
+At link time, the **linker will only copy the object modules that are referenced by the program**, which reduces the size of the executable on disk and in memory. On the other hand, the application programmer **only needs to include the names of a few library files**.
+
+
+
+On Linux systems, static libraries are stored on disk in a particular file format known as an **archive**. An archive is **a collection of concatenated relocatable object files**, with a header that describes the size and location of each member object file. Archive filenames are denoted with the .a suffix
+
+
+
+![image-20210522154712602](CSAPPchapter7---Linking.assets/image-20210522154712602.png)
+
+### How Linkers Use Static Libraries to Resolve References
+
+While static libraries are useful, they are also a source of confusion to programmers because of the way the Linux linker uses them to resolve **external references**.
+
+During this scan, the linker maintains a set **E** of relocatable object files that will be merged to form the executable, a set **U** of unresolved symbols (i.e., symbols referred to but not yet defined), and a set **D** of symbols that have been defined in previous input files. Initially, E, U, and D are empty
+
+- For each input file f on the command line, the linker determines if f is an object file or an archive. If f is an object file, the linker adds f to E, updates U and D to reflect the symbol definitions and references in f , and proceeds to the next input file.
+- If f is an archive, the linker attempts to match the unresolved symbols in U against the symbols defined by the members of the archive. If some archive member m defines a symbol that resolves a reference in U, then m is added to E, and the linker updates U and D to reflect the symbol definitions and references in m. This process iterates over the member object files in the archive until a fixed point is reached where U and D no longer change. At this point, any member object files not contained in E are simply discarded and the linker proceeds to the next input file.
+- If U is nonempty when the linker finishes scanning the input files on the command line, it prints an error and terminates. Otherwise, it merges and relocates the object files in E to build the output executable file.
+
+Unfortunately, this algorithm can result in some **baffling link-time errors** because the **ordering** of libraries and object files on the command line is significant. **If the library that defines a symbol appears on the command line before the object file that references that symbol, then the reference will not be resolved and linking will fail**
+
+
+
+The general rule for libraries is to **place them at the end of the command line**. If the members of the different libraries are independent, in that **no member references a symbol defined by another member**, then the libraries can be placed at the end of the command line **in any order**. If, on the other hand, the libraries are **not independent**, then they must be ordered so that for each symbols that is referenced externally by a member of an archive, at least one definition of s follows a reference to s on the command line.
+
+For example, suppose `foo.c` calls functions in `libx.a` and `libz.a` that call functions in `liby.a`. Then `libx.a` and `libz.a` must precede `liby.a` on the command line:
+
+```bash
+gcc foo.c libx.a libz.a liby.a
+```
+
+
+
+Libraries can be **repeated** on the command line if necessary to satisfy the **dependence requirements**. For example, suppose `foo.c` calls a function in `libx.a` that calls a function in `liby.a` that calls a function in `libx.a`. Then `libx.a` must be repeated on the command line
+
+```bash
+gcc foo.c libx.a liby.a libx.a
+```
